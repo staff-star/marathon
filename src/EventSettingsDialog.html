@@ -25,10 +25,13 @@
     <button onclick="save()">保存する</button>
     <div id="status"></div>
     <script>
-      var payload = <?= JSON.stringify(payload) ?>;
+      var payload = <?!= JSON.stringify(payload || {}) ?>;
+      payload.events = Array.isArray(payload.events) ? payload.events : [];
 
       function init() {
         var select = document.getElementById('eventName');
+        select.innerHTML = '';
+
         payload.events.forEach(function (eventItem) {
           var option = document.createElement('option');
           option.value = eventItem.name;
