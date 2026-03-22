@@ -34,17 +34,30 @@ function patchVariationWorkSheetPreviewV2_() {
   }
   var rowCount = sheet.getLastRow() - 1;
   var priceFormulas = [];
+  var nameFormulas = [];
+  sheet.getRange(1, 11).setValue('商品名（更新後）');
+  styleHeaderRow_(sheet.getRange(1, 11, 1, 1));
+  sheet.getRange(2, 11, rowCount, 1).setBackground(APP_CONFIG.COLORS.AUTO_BG);
+  sheet.setColumnWidth(11, 320);
   for (var i = 0; i < rowCount; i++) {
     var row = i + 2;
     priceFormulas.push([buildVariationPriceFormulaV2_(row)]);
+    nameFormulas.push([buildVariationNameFormulaV2_(row)]);
   }
   sheet.getRange(2, 9, rowCount, 1).setFormulas(priceFormulas);
+  sheet.getRange(2, 11, rowCount, 1).setFormulas(nameFormulas);
 }
 
 function buildSingleNameFormulaV2_(row) {
   var prefix = buildPrefixFormulaV2_(row, 'G', 'B');
   return '=IF(OR($B' + row + '="",NOT(ISNUMBER($B' + row + ')),$B' + row + '<>INT($B' + row + '),$B' + row + '<=0,$B' + row + '>=100),"",' +
     prefix + '&LEFT($E' + row + ',MAX(0,' + settingsRef_(APP_CONFIG.SETTINGS_ROWS.PRODUCT_NAME_MAX_LENGTH) + '-LEN(' + prefix + '))))';
+}
+
+function buildVariationNameFormulaV2_(row) {
+  var prefix = buildPrefixFormulaV2_(row, 'G', 'B');
+  return '=IF(OR($B' + row + '="",NOT(ISNUMBER($B' + row + ')),$B' + row + '<>INT($B' + row + '),$B' + row + '<=0,$B' + row + '>=100),"",' +
+    prefix + '&LEFT($D' + row + ',MAX(0,' + settingsRef_(APP_CONFIG.SETTINGS_ROWS.PRODUCT_NAME_MAX_LENGTH) + '-LEN(' + prefix + '))))';
 }
 
 function buildSinglePriceFormulaV2_(row) {
