@@ -99,13 +99,13 @@ function importMultipleCsvFilesFromDialog(payloads) {
 
 function generateSingleWorkSheet() {
   return runMenuAction_('単品の作業シートを作成する', function () {
-    return generateSingleWorkSheetCore_();
+    return generateSingleWorkSheetV2Core_();
   });
 }
 
 function generateVariationWorkSheet() {
   return runMenuAction_('バリエーションの作業シートを作成する', function () {
-    return generateVariationWorkSheetByProductCodeCore_();
+    return generateVariationWorkSheetV2Core_();
   });
 }
 
@@ -117,21 +117,21 @@ function updateItemFlags() {
 
 function applySingleUpdates() {
   return runMenuAction_('単品商品の内容を反映する', function () {
-    return applySingleUpdatesCore_();
+    return applySingleUpdatesV2Core_();
   });
 }
 
 function applyVariationUpdates() {
   return runMenuAction_('バリエーション商品の内容を反映する', function () {
-    return applyVariationUpdatesCore_();
+    return applyVariationUpdatesV2Core_();
   });
 }
 
 function runAllUpdates() {
   return runMenuAction_('すべての更新を実行する', function () {
     var flagResult = updateItemFlagsCore_();
-    var singleResult = applySingleUpdatesCore_();
-    var variationResult = applyVariationUpdatesCore_();
+    var singleResult = applySingleUpdatesV2Core_();
+    var variationResult = applyVariationUpdatesV2Core_();
     return {
       targetCount: flagResult.targetCount + singleResult.targetCount + variationResult.targetCount,
       updatedCount: flagResult.updatedCount + singleResult.updatedCount + variationResult.updatedCount,
@@ -149,7 +149,7 @@ function runAllUpdates() {
 
 function restoreSingleProducts() {
   return runMenuAction_('単品を復旧する', function () {
-    return restoreSingleProductsCore_();
+    return restoreSingleProductsV2Core_();
   });
 }
 
@@ -161,7 +161,7 @@ function restoreVariationProducts() {
 
 function restoreAllProducts() {
   return runMenuAction_('すべてを復旧する', function () {
-    var singleResult = restoreSingleProductsCore_();
+    var singleResult = restoreSingleProductsV2Core_();
     var variationResult = restoreVariationProductsCore_();
     return {
       targetCount: singleResult.targetCount + variationResult.targetCount,
@@ -178,13 +178,13 @@ function restoreAllProducts() {
 }
 
 function exportItemCsv() {
-  showExportDialog_('item');
+  showFilteredExportDialog_('item');
 }
 
 function exportItemsubCsv() {
-  showExportDialog_('itemsub');
+  showFilteredExportDialog_('itemsub');
 }
 
 function exportSelectionCsv() {
-  showExportDialog_('selection');
+  showFilteredExportDialog_('selection');
 }
