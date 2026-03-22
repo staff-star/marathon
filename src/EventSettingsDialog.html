@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      body { font-family: sans-serif; padding: 16px; }
+      label { display: block; margin: 12px 0 4px; }
+      input, select { width: 100%; box-sizing: border-box; padding: 8px; }
+      .meta { margin-top: 12px; font-size: 12px; color: #555; }
+      button { margin-top: 16px; padding: 8px 14px; }
+      #status { margin-top: 12px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div><strong>イベント設定</strong></div>
+    <label for="eventName">イベント名</label>
+    <select id="eventName"></select>
+    <label for="startDate">開始日</label>
+    <input id="startDate" type="date">
+    <label for="endDate">終了日</label>
+    <input id="endDate" type="date">
+    <div class="meta">開始時刻: <span id="startTime"></span></div>
+    <div class="meta">終了時刻: <span id="endTime"></span></div>
+    <button onclick="save()">保存する</button>
+    <div id="status"></div>
+    <script>
+      var payload = <?= JSON.stringify(payload) ?>;
+
+      function init() {
+        var select = document.getElementById('eventName');
+        payload.events.forEach(function (eventItem) {
+          var option = document.createElement('option');
+          option.value = eventItem.name;
+          option.textContent = eventItem.name;
+          select.appendChild(option);
+        });
+        if (payload.currentEventName) {
+          select.value = payload.currentEventName;
+        } else if (payload.events[0]) {
+          select.value = payload.events[0].name;
+        }
+        document.getElementById('startDate').value = payload.currentStartDate || '';
+        document.getElementById('endDate').value = payload.currentEndDate || '';
+        select.addEventListener('change', updateTimes);
+        updateTimes();
+      }
+
+      function updateTimes() {
+        var current = payload.events.find(function (eventItem) {
+          return eventItem.name === document.getElementById('eventName').value;
+        });
+        document.getElementById('startTime').textContent = current ? current.startTime : '';
+        document.getElementById('endTime').textContent = current ? current.endTime : '';
+      }
+
+      function save() {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            setStatus(result.message, false);
+            setTimeout(function () { google.script.host.close(); }, 800);
+          })
+          .withFailureHandler(function (error) {
+            setStatus(error.message || String(error), true);
+          })
+          .saveEventSettingsFromDialog({
+            eventName: document.getElementById('eventName').value,
+            startDate: document.getElementById('startDate').value,
+            endDate: document.getElementById('endDate').value
+          });
+      }
+
+      function setStatus(message, isError) {
+        var el = document.getElementById('status');
+        el.textContent = message || '';
+        el.style.color = isError ? '#b00020' : '#333';
+      }
+
+      init();
+    </script>
+  </body>
+</html>
