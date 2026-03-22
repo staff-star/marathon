@@ -105,7 +105,7 @@ function generateSingleWorkSheet() {
 
 function generateVariationWorkSheet() {
   return runMenuAction_('バリエーションの作業シートを作成する', function () {
-    return generateVariationWorkSheetCore_();
+    return generateVariationWorkSheetByProductCodeCore_();
   });
 }
 
