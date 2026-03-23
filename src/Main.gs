@@ -149,20 +149,20 @@ function runAllUpdates() {
 
 function restoreSingleProducts() {
   return runMenuAction_('単品を復旧する', function () {
-    return restoreSingleProductsV2Core_();
+    return restoreSingleProductsV3Core_();
   });
 }
 
 function restoreVariationProducts() {
   return runMenuAction_('バリエーションを復旧する', function () {
-    return restoreVariationProductsV2Core_();
+    return restoreVariationProductsV3Core_();
   });
 }
 
 function restoreAllProducts() {
   return runMenuAction_('すべてを復旧する', function () {
-    var singleResult = restoreSingleProductsV2Core_();
-    var variationResult = restoreVariationProductsV2Core_();
+    var singleResult = restoreSingleProductsV3Core_();
+    var variationResult = restoreVariationProductsV3Core_();
     return {
       targetCount: singleResult.targetCount + variationResult.targetCount,
       updatedCount: 0,
