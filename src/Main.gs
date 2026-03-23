@@ -155,14 +155,14 @@ function restoreSingleProducts() {
 
 function restoreVariationProducts() {
   return runMenuAction_('バリエーションを復旧する', function () {
-    return restoreVariationProductsCore_();
+    return restoreVariationProductsV2Core_();
   });
 }
 
 function restoreAllProducts() {
   return runMenuAction_('すべてを復旧する', function () {
     var singleResult = restoreSingleProductsV2Core_();
-    var variationResult = restoreVariationProductsCore_();
+    var variationResult = restoreVariationProductsV2Core_();
     return {
       targetCount: singleResult.targetCount + variationResult.targetCount,
       updatedCount: 0,

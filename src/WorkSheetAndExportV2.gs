@@ -55,7 +55,7 @@ function buildSingleNameFormulaV2_(row) {
 }
 
 function buildVariationNameFormulaV2_(row) {
-  var prefix = buildPrefixFormulaV2_(row, 'G', 'B');
+  var prefix = buildVariationPercentPrefixFormulaV2_(row);
   return '=IF(OR($B' + row + '="",NOT(ISNUMBER($B' + row + ')),$B' + row + '<>INT($B' + row + '),$B' + row + '<=0,$B' + row + '>=100),"",' +
     prefix + '&LEFT($D' + row + ',MAX(0,' + settingsRef_(APP_CONFIG.SETTINGS_ROWS.PRODUCT_NAME_MAX_LENGTH) + '-LEN(' + prefix + '))))';
 }
@@ -72,8 +72,18 @@ function buildPrefixFormulaV2_(row, priceColumn, discountColumn) {
   return '"【"&' + settingsRef_(APP_CONFIG.SETTINGS_ROWS.CURRENT_EVENT) + '&" "&TEXT($' + priceColumn + row + ',"0")&"円→"&TEXT(ROUNDDOWN($' + priceColumn + row + '*(1-$' + discountColumn + row + '/100),-1),"0")&"円】"';
 }
 
+function buildVariationPercentPrefixFormulaV2_(row) {
+  return '"【"&' + settingsRef_(APP_CONFIG.SETTINGS_ROWS.CURRENT_EVENT) + '&" "&TEXT($B' + row + ',"0")&"%OFF】"';
+}
+
 function buildSingleNameV2_(eventName, displayPrice, newPrice, originalName, maxLength) {
   var prefix = '【' + eventName + ' ' + displayPrice + '円→' + newPrice + '円】';
+  var remain = Math.max(Number(maxLength || 127) - prefix.length, 0);
+  return prefix + normalizeString_(originalName).slice(0, remain);
+}
+
+function buildVariationNameV2_(eventName, discount, originalName, maxLength) {
+  var prefix = '【' + eventName + ' ' + Number(discount) + '%OFF】';
   var remain = Math.max(Number(maxLength || 127) - prefix.length, 0);
   return prefix + normalizeString_(originalName).slice(0, remain);
 }
@@ -135,7 +145,7 @@ function applySingleUpdatesV2Core_() {
       settings.currentEvent,
       displayPrice,
       newPrice,
-      normalizeString_(targetRow[COL.ITEMSUB_NAME - 1]),
+      stripSalePrefixV2_(targetRow[COL.ITEMSUB_NAME - 1]),
       settings.productNameMaxLength
     );
     targetRow[COL.ITEMSUB_NORMAL_PRICE - 1] = newPrice;
@@ -158,7 +168,7 @@ function applySingleUpdatesV2Core_() {
 }
 
 function applyVariationUpdatesV2Core_() {
-  getSettingsValues_();
+  var settings = ensureCurrentSettingsComplete_();
   var workRows = getWorkSheetRows_(APP_CONFIG.SHEETS.WORK_VARIATION, APP_CONFIG.VARIATION_HEADERS.length);
   var selectionRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, [
     COL.SELECTION_PRODUCT_CODE,
@@ -167,13 +177,22 @@ function applyVariationUpdatesV2Core_() {
     COL.SELECTION_NORMAL_PRICE,
     COL.SELECTION_DISPLAY_PRICE
   ], 'IR selection CSV');
-  var values = selectionRows.values;
-  var updatedCount = 0;
+  var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
+    COL.ITEMSUB_PRODUCT_CODE,
+    COL.ITEMSUB_NAME
+  ], 'IR itemsub CSV');
+  var selectionValues = selectionRows.values;
+  var itemsubValues = itemsubRows.values;
+  var itemsubIndex = indexUniqueRows_(itemsubRows, COL.ITEMSUB_PRODUCT_CODE);
+  var selectionUpdatedCount = 0;
+  var itemsubNameUpdatedCount = 0;
   var skippedCount = 0;
-  var errorCount = 0;
-  var touched = {};
+  var errorCount = itemsubIndex.duplicateCount;
+  var touchedSelection = {};
+  var grouped = {};
 
   workRows.forEach(function (row) {
+    var productCode = normalizeString_(row[2]);
     if (row[0] !== true) {
       skippedCount++;
       return;
@@ -183,32 +202,85 @@ function applyVariationUpdatesV2Core_() {
       errorCount++;
       return;
     }
-    var sourceRowNumber = Number(row[5]);
-    if (!sourceRowNumber || sourceRowNumber < 2 || sourceRowNumber > values.length || touched[sourceRowNumber]) {
+    if (!productCode) {
       skippedCount++;
       errorCount++;
       return;
     }
-    var targetRow = values[sourceRowNumber - 1];
-    var displayPrice = toNumber_(targetRow[COL.SELECTION_DISPLAY_PRICE - 1]);
-    if (displayPrice === null) {
-      skippedCount++;
-      errorCount++;
-      return;
+    if (!grouped[productCode]) {
+      grouped[productCode] = [];
     }
-    targetRow[COL.SELECTION_NORMAL_PRICE - 1] = calculateDiscountedPriceV2_(displayPrice, Number(row[1]));
-    touched[sourceRowNumber] = true;
-    updatedCount++;
+    grouped[productCode].push(row);
   });
 
-  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, values);
+  Object.keys(grouped).forEach(function (productCode) {
+    var rows = grouped[productCode];
+    var itemsubEntry = itemsubIndex.map[productCode];
+    if (!itemsubEntry || itemsubIndex.duplicates[productCode]) {
+      skippedCount += rows.length;
+      errorCount += rows.length;
+      return;
+    }
+
+    var discountMap = {};
+    rows.forEach(function (row) {
+      discountMap[String(Number(row[1]))] = true;
+    });
+    var discounts = Object.keys(discountMap);
+    if (discounts.length !== 1) {
+      skippedCount += rows.length;
+      errorCount += rows.length;
+      return;
+    }
+    var discount = Number(discounts[0]);
+    var appliedInGroup = 0;
+
+    rows.forEach(function (row) {
+      var sourceRowNumber = Number(row[5]);
+      if (!sourceRowNumber || sourceRowNumber < 2 || sourceRowNumber > selectionValues.length || touchedSelection[sourceRowNumber]) {
+        skippedCount++;
+        errorCount++;
+        return;
+      }
+      var targetRow = selectionValues[sourceRowNumber - 1];
+      var displayPrice = toNumber_(targetRow[COL.SELECTION_DISPLAY_PRICE - 1]);
+      if (displayPrice === null) {
+        skippedCount++;
+        errorCount++;
+        return;
+      }
+      targetRow[COL.SELECTION_NORMAL_PRICE - 1] = calculateDiscountedPriceV2_(displayPrice, discount);
+      touchedSelection[sourceRowNumber] = true;
+      selectionUpdatedCount++;
+      appliedInGroup++;
+    });
+
+    if (appliedInGroup > 0) {
+      var itemsubTargetRow = itemsubValues[itemsubEntry.rowNumber - 1];
+      itemsubTargetRow[COL.ITEMSUB_NAME - 1] = buildVariationNameV2_(
+        settings.currentEvent,
+        discount,
+        stripSalePrefixV2_(itemsubTargetRow[COL.ITEMSUB_NAME - 1]),
+        settings.productNameMaxLength
+      );
+      itemsubNameUpdatedCount++;
+    }
+  });
+
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, selectionValues);
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, itemsubValues);
   return {
     targetCount: workRows.length,
-    updatedCount: updatedCount,
+    updatedCount: selectionUpdatedCount + itemsubNameUpdatedCount,
     restoredCount: 0,
     skippedCount: skippedCount,
     errorCount: errorCount,
-    message: 'バリエーション商品の内容を反映しました。\n更新: ' + updatedCount + '件\nスキップ: ' + skippedCount + '件\nエラー: ' + errorCount + '件'
+    message:
+      'バリエーション商品の内容を反映しました。\n' +
+      '価格更新: ' + selectionUpdatedCount + '件\n' +
+      '親商品名更新: ' + itemsubNameUpdatedCount + '件\n' +
+      'スキップ: ' + skippedCount + '件\n' +
+      'エラー: ' + errorCount + '件'
   };
 }
 
@@ -254,7 +326,7 @@ function restoreSingleProductsV2Core_() {
     }
     var row = values[itemsubEntry.rowNumber - 1];
     row[COL.ITEMSUB_NORMAL_PRICE - 1] = row[COL.ITEMSUB_DISPLAY_PRICE - 1];
-    row[COL.ITEMSUB_NAME - 1] = stripSalePrefixV2_(normalizeString_(row[COL.ITEMSUB_NAME - 1]));
+    row[COL.ITEMSUB_NAME - 1] = stripSalePrefixV2_(row[COL.ITEMSUB_NAME - 1]);
     row[COL.ITEMSUB_START_AT - 1] = restoreStart;
     row[COL.ITEMSUB_END_AT - 1] = restoreEnd;
     row[COL.ITEMSUB_DOUBLE_PRICE_TEXT - 1] = settings.doublePriceText;
@@ -269,6 +341,86 @@ function restoreSingleProductsV2Core_() {
     skippedCount: skippedCount,
     errorCount: errorCount,
     message: '単品を復旧しました。\n復旧: ' + restoredCount + '件\nスキップ: ' + skippedCount + '件\nエラー: ' + errorCount + '件'
+  };
+}
+
+function restoreVariationProductsV2Core_() {
+  var settings = ensureRestoreSettingsComplete_();
+  var itemRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEM, [COL.ITEM_PRODUCT_CODE, COL.ITEM_STOCK_TYPE, COL.ITEM_FLAG], 'IR item CSV');
+  var selectionRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, [
+    COL.SELECTION_PRODUCT_CODE,
+    COL.SELECTION_NAME,
+    COL.SELECTION_SKU_CODE,
+    COL.SELECTION_NORMAL_PRICE,
+    COL.SELECTION_DISPLAY_PRICE
+  ], 'IR selection CSV');
+  var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
+    COL.ITEMSUB_PRODUCT_CODE,
+    COL.ITEMSUB_NAME
+  ], 'IR itemsub CSV');
+  var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
+  var selectionIndex = indexUniqueRows_(selectionRows, COL.SELECTION_SKU_CODE);
+  var itemsubIndex = indexUniqueRows_(itemsubRows, COL.ITEMSUB_PRODUCT_CODE);
+  var selectionValues = selectionRows.values;
+  var itemsubValues = itemsubRows.values;
+  var targetProductCodes = {};
+
+  Object.keys(itemIndex.map).forEach(function (productCode) {
+    if (itemIndex.duplicates[productCode]) {
+      return;
+    }
+    var row = itemIndex.map[productCode].values;
+    if (normalizeString_(row[COL.ITEM_STOCK_TYPE - 1]) === '2' && startsManagedFlag_(row[COL.ITEM_FLAG - 1], settings.flagPrefix)) {
+      targetProductCodes[productCode] = true;
+    }
+  });
+
+  var restoredSelectionCount = 0;
+  var restoredNameCount = 0;
+  var skippedCount = itemIndex.duplicateCount + itemsubIndex.duplicateCount;
+  var errorCount = itemIndex.duplicateCount + selectionIndex.duplicateCount + itemsubIndex.duplicateCount;
+
+  for (var i = 1; i < selectionValues.length; i++) {
+    var row = selectionValues[i];
+    var productCode = normalizeString_(row[COL.SELECTION_PRODUCT_CODE - 1]);
+    var skuCode = normalizeString_(row[COL.SELECTION_SKU_CODE - 1]);
+    if (!productCode || !targetProductCodes[productCode]) {
+      continue;
+    }
+    if (selectionIndex.duplicates[skuCode]) {
+      skippedCount++;
+      continue;
+    }
+    row[COL.SELECTION_NORMAL_PRICE - 1] = row[COL.SELECTION_DISPLAY_PRICE - 1];
+    restoredSelectionCount++;
+  }
+
+  Object.keys(targetProductCodes).forEach(function (productCode) {
+    var itemsubEntry = itemsubIndex.map[productCode];
+    if (!itemsubEntry || itemsubIndex.duplicates[productCode]) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    var itemsubRow = itemsubValues[itemsubEntry.rowNumber - 1];
+    itemsubRow[COL.ITEMSUB_NAME - 1] = stripSalePrefixV2_(itemsubRow[COL.ITEMSUB_NAME - 1]);
+    restoredNameCount++;
+  });
+
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, selectionValues);
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, itemsubValues);
+  return {
+    targetCount: Object.keys(targetProductCodes).length,
+    updatedCount: 0,
+    restoredCount: restoredSelectionCount + restoredNameCount,
+    skippedCount: skippedCount,
+    errorCount: errorCount,
+    message:
+      'バリエーションを復旧しました。\n' +
+      '価格復旧: ' + restoredSelectionCount + '件\n' +
+      '親商品名復旧: ' + restoredNameCount + '件\n' +
+      'スキップ: ' + skippedCount + '件\n' +
+      'エラー: ' + errorCount + '件'
   };
 }
 
@@ -322,7 +474,7 @@ function filterExportValuesByWorkTargets_(kind, values) {
     return filterExportRowsByProductCodes_(values, COL.ITEM_PRODUCT_CODE, targets.itemProductCodes);
   }
   if (kind === 'itemsub') {
-    return filterExportRowsBySourceRowNumbers_(values, targets.singleSourceRowNumbers);
+    return filterExportRowsByProductCodes_(values, COL.ITEMSUB_PRODUCT_CODE, targets.itemProductCodes);
   }
   if (kind === 'selection') {
     return filterExportRowsBySourceRowNumbers_(values, targets.variationSourceRowNumbers);
