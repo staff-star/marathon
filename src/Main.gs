@@ -111,7 +111,7 @@ function generateVariationWorkSheet() {
 
 function updateItemFlags() {
   return runMenuAction_('IRアイテムの付箋を更新する', function () {
-    return updateItemFlagsCore_();
+    return updateItemFlagsV2Core_();
   });
 }
 
@@ -129,20 +129,20 @@ function applyVariationUpdates() {
 
 function runAllUpdates() {
   return runMenuAction_('すべての更新を実行する', function () {
-    var flagResult = updateItemFlagsCore_();
     var singleResult = applySingleUpdatesV2Core_();
     var variationResult = applyVariationUpdatesV2Core_();
+    var flagResult = updateItemFlagsV2Core_();
     return {
-      targetCount: flagResult.targetCount + singleResult.targetCount + variationResult.targetCount,
-      updatedCount: flagResult.updatedCount + singleResult.updatedCount + variationResult.updatedCount,
+      targetCount: singleResult.targetCount + variationResult.targetCount + flagResult.targetCount,
+      updatedCount: singleResult.updatedCount + variationResult.updatedCount + flagResult.updatedCount,
       restoredCount: 0,
-      skippedCount: flagResult.skippedCount + singleResult.skippedCount + variationResult.skippedCount,
-      errorCount: flagResult.errorCount + singleResult.errorCount + variationResult.errorCount,
+      skippedCount: singleResult.skippedCount + variationResult.skippedCount + flagResult.skippedCount,
+      errorCount: singleResult.errorCount + variationResult.errorCount + flagResult.errorCount,
       message:
         'すべての更新を実行しました。\n' +
-        '付箋: ' + flagResult.updatedCount + '件\n' +
         '単品反映: ' + singleResult.updatedCount + '件\n' +
-        'バリエーション反映: ' + variationResult.updatedCount + '件'
+        'バリエーション反映: ' + variationResult.updatedCount + '件\n' +
+        '付箋更新: ' + flagResult.updatedCount + '件'
     };
   });
 }
