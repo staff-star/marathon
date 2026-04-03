@@ -576,3 +576,351 @@ function filterExportRowsBySourceRowNumbers_(values, sourceRowNumbers) {
   }
   return filtered;
 }
+
+function normalizeHeaderLabelV2_(value) {
+  return normalizeString_(value)
+    .replace(/[ 　\t\r\n]/g, '')
+    .replace(/[()（）]/g, '');
+}
+
+function findHeaderIndexByCandidatesV2_(header, candidates) {
+  var normalizedCandidates = (candidates || []).map(normalizeHeaderLabelV2_);
+  for (var i = 0; i < header.length; i++) {
+    var normalizedHeader = normalizeHeaderLabelV2_(header[i]);
+    if (!normalizedHeader) {
+      continue;
+    }
+    if (normalizedCandidates.indexOf(normalizedHeader) !== -1) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
+
+function getItemsubSalePeriodColumnsV2_(header) {
+  var productCodeColumn = findHeaderIndexByCandidatesV2_(header, [
+    '商品コード（楽天URL）',
+    '商品コード(楽天URL)',
+    '商品コード楽天URL',
+    '商品コード'
+  ]);
+  var startAtColumn = findHeaderIndexByCandidatesV2_(header, [
+    '販売期間（開始）',
+    '販売期間(開始)',
+    '販売期間開始'
+  ]);
+  var endAtColumn = findHeaderIndexByCandidatesV2_(header, [
+    '販売期間（終了）',
+    '販売期間(終了)',
+    '販売期間終了'
+  ]);
+
+  if (!productCodeColumn) {
+    throw new Error('IR itemsub CSV の「商品コード（楽天URL）」列が見つかりません。');
+  }
+  if (!startAtColumn || !endAtColumn) {
+    throw new Error('IR itemsub CSV の「販売期間（開始）」「販売期間（終了）」列が見つかりません。');
+  }
+
+  return {
+    productCode: productCodeColumn,
+    startAt: startAtColumn,
+    endAt: endAtColumn
+  };
+}
+
+function indexRowsByColumnValueV2_(sheetRows, keyColumn) {
+  var map = {};
+  sheetRows.values.slice(1).forEach(function (row, index) {
+    var key = normalizeString_(row[keyColumn - 1]);
+    if (!key) {
+      return;
+    }
+    if (!map[key]) {
+      map[key] = [];
+    }
+    map[key].push({
+      rowNumber: index + 2,
+      values: row
+    });
+  });
+  return map;
+}
+
+function buildMissingSalePeriodLogMessageV2_(prefix, reason, productCodes) {
+  if (!productCodes.length) {
+    return prefix + '\n' + reason;
+  }
+  return prefix + '\n' + reason + '\n対象商品コード: ' + productCodes.join(', ');
+}
+
+function applySingleUpdatesV2Core_() {
+  var settings = getSettingsValues_();
+  if (!settings.currentEvent) {
+    throw new Error('イベント設定が未入力です。');
+  }
+
+  var workRows = getWorkSheetRows_(APP_CONFIG.SHEETS.WORK_SINGLE, 13);
+  var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
+    COL.ITEMSUB_NAME,
+    COL.ITEMSUB_NORMAL_PRICE,
+    COL.ITEMSUB_DISPLAY_PRICE,
+    COL.ITEMSUB_DOUBLE_PRICE_TEXT
+  ], 'IR itemsub CSV');
+  var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
+  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
+  var values = itemsubRows.values;
+  var hasSalePeriod = !!(settings.currentStartDate && settings.currentEndDate);
+  var startAt = hasSalePeriod ? formatDateTimeForCsv_(settings.currentStartDate, settings.currentStartTime) : '';
+  var endAt = hasSalePeriod ? formatDateTimeForCsv_(settings.currentEndDate, settings.currentEndTime) : '';
+  var updatedCount = 0;
+  var skippedCount = 0;
+  var errorCount = 0;
+  var touchedProductCodes = {};
+  var missingSalePeriodProductCodes = {};
+
+  workRows.forEach(function (row) {
+    var productCode = normalizeString_(row[2]);
+    if (row[0] !== true) {
+      skippedCount++;
+      return;
+    }
+    if (!isValidDiscountInteger_(row[1])) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    if (!productCode) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    if (touchedProductCodes[productCode]) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    if (!hasSalePeriod) {
+      skippedCount++;
+      errorCount++;
+      missingSalePeriodProductCodes[productCode] = true;
+      touchedProductCodes[productCode] = true;
+      return;
+    }
+
+    var targetRows = itemsubRowsByProductCode[productCode];
+    if (!targetRows || !targetRows.length) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+
+    var updatedInProduct = 0;
+    targetRows.forEach(function (entry) {
+      var targetRow = values[entry.rowNumber - 1];
+      var displayPrice = toNumber_(targetRow[COL.ITEMSUB_DISPLAY_PRICE - 1]);
+      if (displayPrice === null) {
+        skippedCount++;
+        errorCount++;
+        return;
+      }
+
+      var newPrice = calculateDiscountedPriceV2_(displayPrice, Number(row[1]));
+      targetRow[COL.ITEMSUB_NAME - 1] = buildSingleNameV2_(
+        settings.currentEvent,
+        displayPrice,
+        newPrice,
+        stripSalePrefixV2_(targetRow[COL.ITEMSUB_NAME - 1]),
+        settings.productNameMaxLength
+      );
+      targetRow[COL.ITEMSUB_NORMAL_PRICE - 1] = newPrice;
+      targetRow[itemsubColumns.startAt - 1] = startAt;
+      targetRow[itemsubColumns.endAt - 1] = endAt;
+      targetRow[COL.ITEMSUB_DOUBLE_PRICE_TEXT - 1] = settings.doublePriceText;
+      updatedCount++;
+      updatedInProduct++;
+    });
+
+    if (!updatedInProduct) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+
+    touchedProductCodes[productCode] = true;
+  });
+
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, values);
+
+  var missingSalePeriodCodes = Object.keys(missingSalePeriodProductCodes);
+  var message = '単品更新を反映しました。\n更新: ' + updatedCount + '件\nスキップ: ' + skippedCount + '件\nエラー: ' + errorCount + '件';
+  if (missingSalePeriodCodes.length) {
+    message += '\n販売期間未設定: ' + missingSalePeriodCodes.length + '件';
+  }
+
+  return {
+    targetCount: workRows.length,
+    updatedCount: updatedCount,
+    restoredCount: 0,
+    skippedCount: skippedCount,
+    errorCount: errorCount,
+    message: message,
+    logMessage: missingSalePeriodCodes.length
+      ? buildMissingSalePeriodLogMessageV2_(
+          message,
+          '開始日または終了日が未入力のため、対象商品の更新をスキップしました。',
+          missingSalePeriodCodes
+        )
+      : message
+  };
+}
+
+function applyVariationUpdatesV2Core_() {
+  var settings = getSettingsValues_();
+  if (!settings.currentEvent) {
+    throw new Error('イベント設定が未入力です。');
+  }
+
+  var workRows = getWorkSheetRows_(APP_CONFIG.SHEETS.WORK_VARIATION, APP_CONFIG.VARIATION_HEADERS.length);
+  var selectionRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, [
+    COL.SELECTION_PRODUCT_CODE,
+    COL.SELECTION_NAME,
+    COL.SELECTION_SKU_CODE,
+    COL.SELECTION_NORMAL_PRICE,
+    COL.SELECTION_DISPLAY_PRICE
+  ], 'IR selection CSV');
+  var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
+    COL.ITEMSUB_NAME
+  ], 'IR itemsub CSV');
+  var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
+  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
+  var selectionValues = selectionRows.values;
+  var itemsubValues = itemsubRows.values;
+  var hasSalePeriod = !!(settings.currentStartDate && settings.currentEndDate);
+  var startAt = hasSalePeriod ? formatDateTimeForCsv_(settings.currentStartDate, settings.currentStartTime) : '';
+  var endAt = hasSalePeriod ? formatDateTimeForCsv_(settings.currentEndDate, settings.currentEndTime) : '';
+  var selectionUpdatedCount = 0;
+  var itemsubUpdatedCount = 0;
+  var skippedCount = 0;
+  var errorCount = 0;
+  var touchedSelection = {};
+  var grouped = {};
+  var missingSalePeriodProductCodes = {};
+
+  workRows.forEach(function (row) {
+    var productCode = normalizeString_(row[2]);
+    if (row[0] !== true) {
+      skippedCount++;
+      return;
+    }
+    if (!isValidDiscountInteger_(row[1])) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    if (!productCode) {
+      skippedCount++;
+      errorCount++;
+      return;
+    }
+    if (!grouped[productCode]) {
+      grouped[productCode] = [];
+    }
+    grouped[productCode].push(row);
+  });
+
+  Object.keys(grouped).forEach(function (productCode) {
+    var rows = grouped[productCode];
+    var itemsubEntries = itemsubRowsByProductCode[productCode];
+    if (!itemsubEntries || !itemsubEntries.length) {
+      skippedCount += rows.length;
+      errorCount += rows.length;
+      return;
+    }
+
+    var discountMap = {};
+    rows.forEach(function (row) {
+      discountMap[String(Number(row[1]))] = true;
+    });
+    var discounts = Object.keys(discountMap);
+    if (discounts.length !== 1) {
+      skippedCount += rows.length;
+      errorCount += rows.length;
+      return;
+    }
+    if (!hasSalePeriod) {
+      skippedCount += rows.length;
+      errorCount += rows.length;
+      missingSalePeriodProductCodes[productCode] = true;
+      return;
+    }
+
+    var discount = Number(discounts[0]);
+    var appliedInGroup = 0;
+
+    rows.forEach(function (row) {
+      var sourceRowNumber = Number(row[5]);
+      if (!sourceRowNumber || sourceRowNumber < 2 || sourceRowNumber > selectionValues.length || touchedSelection[sourceRowNumber]) {
+        skippedCount++;
+        errorCount++;
+        return;
+      }
+      var targetRow = selectionValues[sourceRowNumber - 1];
+      var displayPrice = toNumber_(targetRow[COL.SELECTION_DISPLAY_PRICE - 1]);
+      if (displayPrice === null) {
+        skippedCount++;
+        errorCount++;
+        return;
+      }
+      targetRow[COL.SELECTION_NORMAL_PRICE - 1] = calculateDiscountedPriceV2_(displayPrice, discount);
+      touchedSelection[sourceRowNumber] = true;
+      selectionUpdatedCount++;
+      appliedInGroup++;
+    });
+
+    if (appliedInGroup > 0) {
+      itemsubEntries.forEach(function (entry) {
+        var itemsubTargetRow = itemsubValues[entry.rowNumber - 1];
+        itemsubTargetRow[COL.ITEMSUB_NAME - 1] = buildVariationNameV2_(
+          settings.currentEvent,
+          discount,
+          stripSalePrefixV2_(itemsubTargetRow[COL.ITEMSUB_NAME - 1]),
+          settings.productNameMaxLength
+        );
+        itemsubTargetRow[itemsubColumns.startAt - 1] = startAt;
+        itemsubTargetRow[itemsubColumns.endAt - 1] = endAt;
+        itemsubUpdatedCount++;
+      });
+    }
+  });
+
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_SELECTION, selectionValues);
+  writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, itemsubValues);
+
+  var missingSalePeriodCodes = Object.keys(missingSalePeriodProductCodes);
+  var message =
+    'バリエーション更新を反映しました。\n' +
+    'selection更新: ' + selectionUpdatedCount + '件\n' +
+    'itemsub更新: ' + itemsubUpdatedCount + '件\n' +
+    'スキップ: ' + skippedCount + '件\n' +
+    'エラー: ' + errorCount + '件';
+  if (missingSalePeriodCodes.length) {
+    message += '\n販売期間未設定: ' + missingSalePeriodCodes.length + '件';
+  }
+
+  return {
+    targetCount: workRows.length,
+    updatedCount: selectionUpdatedCount + itemsubUpdatedCount,
+    restoredCount: 0,
+    skippedCount: skippedCount,
+    errorCount: errorCount,
+    message: message,
+    logMessage: missingSalePeriodCodes.length
+      ? buildMissingSalePeriodLogMessageV2_(
+          message,
+          '開始日または終了日が未入力のため、対象商品の更新をスキップしました。',
+          missingSalePeriodCodes
+        )
+      : message
+  };
+}

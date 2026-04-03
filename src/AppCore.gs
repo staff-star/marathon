@@ -1642,3 +1642,69 @@ function indexToColumn_(index) {
   }
   return result;
 }
+
+function generateSingleWorkSheetCore_() {
+  var rmsRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_RMS, [COL.RMS_PRODUCT_CODE, COL.RMS_SKU_CODE, COL.RMS_RESULT, COL.RMS_DISPLAY_PRICE, COL.RMS_SALE_PRICE], 'RMS価格表示結果CSV');
+  var itemRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEM, [COL.ITEM_PRODUCT_CODE, COL.ITEM_STOCK_TYPE, COL.ITEM_FLAG], 'IR item CSV');
+  var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
+    COL.ITEMSUB_PRODUCT_CODE,
+    COL.ITEMSUB_NAME,
+    COL.ITEMSUB_NORMAL_PRICE,
+    COL.ITEMSUB_DISPLAY_PRICE,
+    COL.ITEMSUB_DOUBLE_PRICE_TEXT
+  ], 'IR itemsub CSV');
+
+  var displayed = collectDisplayedRms_(rmsRows);
+  var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
+  var itemsubIndex = indexUniqueRows_(itemsubRows, COL.ITEMSUB_PRODUCT_CODE);
+  var records = [];
+  var errorCount = itemIndex.duplicateCount + itemsubIndex.duplicateCount;
+  var skippedCount = 0;
+
+  displayed.productCodesInOrder.forEach(function (productCode) {
+    var itemEntry = itemIndex.map[productCode];
+    if (!itemEntry || itemIndex.duplicates[productCode]) {
+      skippedCount++;
+      return;
+    }
+    if (normalizeString_(itemEntry.values[COL.ITEM_STOCK_TYPE - 1]) !== '1') {
+      return;
+    }
+    var itemsubEntry = itemsubIndex.map[productCode];
+    if (!itemsubEntry || itemsubIndex.duplicates[productCode]) {
+      skippedCount++;
+      return;
+    }
+    var displayPrice = toNumber_(itemsubEntry.values[COL.ITEMSUB_DISPLAY_PRICE - 1]);
+    if (displayPrice === null) {
+      errorCount++;
+      skippedCount++;
+      return;
+    }
+    records.push([
+      false,
+      '',
+      productCode,
+      itemsubEntry.rowNumber,
+      normalizeString_(itemsubEntry.values[COL.ITEMSUB_NAME - 1]),
+      '',
+      displayPrice,
+      toSheetValue_(itemsubEntry.values[COL.ITEMSUB_NORMAL_PRICE - 1]),
+      '',
+      '',
+      '',
+      '',
+      ''
+    ]);
+  });
+
+  writeSingleWorkSheet_(records);
+  return {
+    targetCount: records.length,
+    updatedCount: records.length,
+    restoredCount: 0,
+    skippedCount: skippedCount,
+    errorCount: errorCount,
+    message: '単品_作業シートを生成しました。\n対象: ' + records.length + '件\nスキップ: ' + skippedCount + '件\nエラー: ' + errorCount + '件'
+  };
+}
