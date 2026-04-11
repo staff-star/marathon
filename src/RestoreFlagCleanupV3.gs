@@ -98,12 +98,12 @@ function restoreVariationProductsV3Core_() {
     COL.SELECTION_DISPLAY_PRICE
   ], 'IR selection CSV');
   var itemsubRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEMSUB, [
-    COL.ITEMSUB_PRODUCT_CODE,
     COL.ITEMSUB_NAME
   ], 'IR itemsub CSV');
+  var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
   var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
   var selectionIndex = indexUniqueRows_(selectionRows, COL.SELECTION_SKU_CODE);
-  var itemsubIndex = indexUniqueRows_(itemsubRows, COL.ITEMSUB_PRODUCT_CODE);
+  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
   var itemValues = itemRows.values;
   var selectionValues = selectionRows.values;
   var itemsubValues = itemsubRows.values;
@@ -119,10 +119,13 @@ function restoreVariationProductsV3Core_() {
     }
   });
 
+  var restoreStart = formatDateTimeForCsv_(settings.restoreStartDate, settings.restoreStartTime);
+  var restoreEnd = formatDateTimeForCsv_(settings.restoreEndDate, settings.restoreEndTime);
   var restoredSelectionCount = 0;
   var restoredNameCount = 0;
-  var skippedCount = itemIndex.duplicateCount + itemsubIndex.duplicateCount;
-  var errorCount = itemIndex.duplicateCount + selectionIndex.duplicateCount + itemsubIndex.duplicateCount;
+  var restoredSalePeriodCount = 0;
+  var skippedCount = itemIndex.duplicateCount;
+  var errorCount = itemIndex.duplicateCount + selectionIndex.duplicateCount;
   var restoredSelectionProductCodes = {};
   var clearedFlagProductCodes = {};
 
@@ -148,15 +151,20 @@ function restoreVariationProductsV3Core_() {
       errorCount++;
       return;
     }
-    var itemsubEntry = itemsubIndex.map[productCode];
-    if (!itemsubEntry || itemsubIndex.duplicates[productCode]) {
+    var itemsubEntries = itemsubRowsByProductCode[productCode];
+    if (!itemsubEntries || !itemsubEntries.length) {
       skippedCount++;
       errorCount++;
       return;
     }
-    var itemsubRow = itemsubValues[itemsubEntry.rowNumber - 1];
-    itemsubRow[COL.ITEMSUB_NAME - 1] = stripSalePrefixV2_(itemsubRow[COL.ITEMSUB_NAME - 1]);
-    restoredNameCount++;
+    itemsubEntries.forEach(function (entry) {
+      var itemsubRow = itemsubValues[entry.rowNumber - 1];
+      itemsubRow[COL.ITEMSUB_NAME - 1] = stripSalePrefixV2_(itemsubRow[COL.ITEMSUB_NAME - 1]);
+      itemsubRow[itemsubColumns.startAt - 1] = restoreStart;
+      itemsubRow[itemsubColumns.endAt - 1] = restoreEnd;
+      restoredNameCount++;
+      restoredSalePeriodCount++;
+    });
     clearedFlagProductCodes[productCode] = true;
   });
 
@@ -174,6 +182,7 @@ function restoreVariationProductsV3Core_() {
       'バリエーションを復旧しました。\n' +
       '価格復旧: ' + restoredSelectionCount + '件\n' +
       '親商品名復旧: ' + restoredNameCount + '件\n' +
+      '販売期間復旧: ' + restoredSalePeriodCount + '件\n' +
       '付箋解除: ' + clearedFlagCount + '件\n' +
       'スキップ: ' + skippedCount + '件\n' +
       'エラー: ' + errorCount + '件'
