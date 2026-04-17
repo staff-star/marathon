@@ -94,9 +94,9 @@ var COL = {
   ITEMSUB_DOUBLE_PRICE_TEXT: columnToIndex_('BT'),
   SELECTION_PRODUCT_CODE: columnToIndex_('A'),
   SELECTION_NAME: columnToIndex_('B'),
-  SELECTION_SKU_CODE: columnToIndex_('AB'),
-  SELECTION_NORMAL_PRICE: columnToIndex_('AE'),
-  SELECTION_DISPLAY_PRICE: columnToIndex_('AF')
+  SELECTION_SKU_CODE: columnToIndex_('S'),
+  SELECTION_NORMAL_PRICE: columnToIndex_('V'),
+  SELECTION_DISPLAY_PRICE: columnToIndex_('W')
 };
 
 function createMenu_() {
@@ -1460,7 +1460,7 @@ function startsManagedFlag_(value, prefix) {
 function formatDateTimeForCsv_(dateValue, timeValue) {
   var hm = formatTimeForDisplay_(timeValue).split(':');
   var merged = new Date(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate(), Number(hm[0]), Number(hm[1]), 0, 0);
-  return Utilities.formatDate(merged, APP_CONFIG.TIMEZONE, 'yyyy/MM/dd HH:mm');
+  return Utilities.formatDate(merged, APP_CONFIG.TIMEZONE, 'yyyyMMddHHmm');
 }
 
 function buildSingleNameFormula_(row) {

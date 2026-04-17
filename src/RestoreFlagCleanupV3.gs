@@ -103,7 +103,10 @@ function restoreVariationProductsV3Core_() {
   var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
   var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
   var selectionIndex = indexUniqueRows_(selectionRows, COL.SELECTION_SKU_CODE);
-  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
+  var itemsubRowsByProductCode = indexRowsByColumnValuesV2_(itemsubRows, [
+    itemsubColumns.mainProductCode,
+    itemsubColumns.productCode
+  ]);
   var itemValues = itemRows.values;
   var selectionValues = selectionRows.values;
   var itemsubValues = itemsubRows.values;

@@ -598,6 +598,12 @@ function findHeaderIndexByCandidatesV2_(header, candidates) {
 }
 
 function getItemsubSalePeriodColumnsV2_(header) {
+  var mainProductCodeColumn = findHeaderIndexByCandidatesV2_(header, [
+    'メインデータの商品コード（楽天URL）',
+    'メインデータの商品コード(楽天URL)',
+    'メインデータの商品コード楽天URL',
+    'メインデータの商品コード'
+  ]);
   var productCodeColumn = findHeaderIndexByCandidatesV2_(header, [
     '商品コード（楽天URL）',
     '商品コード(楽天URL)',
@@ -615,14 +621,15 @@ function getItemsubSalePeriodColumnsV2_(header) {
     '販売期間終了'
   ]);
 
-  if (!productCodeColumn) {
-    throw new Error('IR itemsub CSV の「商品コード（楽天URL）」列が見つかりません。');
+  if (!mainProductCodeColumn && !productCodeColumn) {
+    throw new Error('IR itemsub CSV の商品コード列が見つかりません。');
   }
   if (!startAtColumn || !endAtColumn) {
     throw new Error('IR itemsub CSV の「販売期間（開始）」「販売期間（終了）」列が見つかりません。');
   }
 
   return {
+    mainProductCode: mainProductCodeColumn,
     productCode: productCodeColumn,
     startAt: startAtColumn,
     endAt: endAtColumn
@@ -642,6 +649,32 @@ function indexRowsByColumnValueV2_(sheetRows, keyColumn) {
     map[key].push({
       rowNumber: index + 2,
       values: row
+    });
+  });
+  return map;
+}
+
+function indexRowsByColumnValuesV2_(sheetRows, keyColumns) {
+  var map = {};
+  sheetRows.values.slice(1).forEach(function (row, index) {
+    var entry = {
+      rowNumber: index + 2,
+      values: row
+    };
+    var seenKeys = {};
+    (keyColumns || []).forEach(function (keyColumn) {
+      if (!keyColumn) {
+        return;
+      }
+      var key = normalizeString_(row[keyColumn - 1]);
+      if (!key || seenKeys[key]) {
+        return;
+      }
+      if (!map[key]) {
+        map[key] = [];
+      }
+      map[key].push(entry);
+      seenKeys[key] = true;
     });
   });
   return map;
@@ -668,7 +701,10 @@ function applySingleUpdatesV2Core_() {
     COL.ITEMSUB_DOUBLE_PRICE_TEXT
   ], 'IR itemsub CSV');
   var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
-  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
+  var itemsubRowsByProductCode = indexRowsByColumnValuesV2_(itemsubRows, [
+    itemsubColumns.mainProductCode,
+    itemsubColumns.productCode
+  ]);
   var values = itemsubRows.values;
   var hasSalePeriod = !!(settings.currentStartDate && settings.currentEndDate);
   var startAt = hasSalePeriod ? formatDateTimeForCsv_(settings.currentStartDate, settings.currentStartTime) : '';
@@ -793,7 +829,10 @@ function applyVariationUpdatesV2Core_() {
     COL.ITEMSUB_NAME
   ], 'IR itemsub CSV');
   var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
-  var itemsubRowsByProductCode = indexRowsByColumnValueV2_(itemsubRows, itemsubColumns.productCode);
+  var itemsubRowsByProductCode = indexRowsByColumnValuesV2_(itemsubRows, [
+    itemsubColumns.mainProductCode,
+    itemsubColumns.productCode
+  ]);
   var selectionValues = selectionRows.values;
   var itemsubValues = itemsubRows.values;
   var hasSalePeriod = !!(settings.currentStartDate && settings.currentEndDate);
