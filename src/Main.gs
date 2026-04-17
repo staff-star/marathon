@@ -99,31 +99,41 @@ function importMultipleCsvFilesFromDialog(payloads) {
 
 function generateSingleWorkSheet() {
   return runMenuAction_('単品の作業シートを作成する', function () {
-    return generateSingleWorkSheetV2Core_();
+    var result = generateSingleWorkSheetV2Core_();
+    activateUpdateSelectionExport_();
+    return result;
   });
 }
 
 function generateVariationWorkSheet() {
   return runMenuAction_('バリエーションの作業シートを作成する', function () {
-    return generateVariationWorkSheetV2Core_();
+    var result = generateVariationWorkSheetV2Core_();
+    activateUpdateSelectionExport_();
+    return result;
   });
 }
 
 function updateItemFlags() {
   return runMenuAction_('IRアイテムの付箋を更新する', function () {
-    return updateItemFlagsV2Core_();
+    var result = updateItemFlagsV2Core_();
+    activateUpdateSelectionExport_();
+    return result;
   });
 }
 
 function applySingleUpdates() {
   return runMenuAction_('単品商品の内容を反映する', function () {
-    return applySingleUpdatesV2Core_();
+    var result = applySingleUpdatesV2Core_();
+    activateUpdateSelectionExport_();
+    return result;
   });
 }
 
 function applyVariationUpdates() {
   return runMenuAction_('バリエーション商品の内容を反映する', function () {
-    return applyVariationUpdatesV2Core_();
+    var result = applyVariationUpdatesV2Core_();
+    activateUpdateSelectionExport_();
+    return result;
   });
 }
 
@@ -132,6 +142,7 @@ function runAllUpdates() {
     var singleResult = applySingleUpdatesV2Core_();
     var variationResult = applyVariationUpdatesV2Core_();
     var flagResult = updateItemFlagsV2Core_();
+    activateUpdateSelectionExport_();
     return {
       targetCount: singleResult.targetCount + variationResult.targetCount + flagResult.targetCount,
       updatedCount: singleResult.updatedCount + variationResult.updatedCount + flagResult.updatedCount,
@@ -155,7 +166,9 @@ function restoreSingleProducts() {
 
 function restoreVariationProducts() {
   return runMenuAction_('バリエーションを復旧する', function () {
-    return restoreVariationProductsV3Core_();
+    var result = restoreVariationProductsV3Core_();
+    activateRestoreSelectionExport_(result.targetProductCodes || []);
+    return result;
   });
 }
 
@@ -163,6 +176,7 @@ function restoreAllProducts() {
   return runMenuAction_('すべてを復旧する', function () {
     var singleResult = restoreSingleProductsV3Core_();
     var variationResult = restoreVariationProductsV3Core_();
+    activateRestoreSelectionExport_(variationResult.targetProductCodes || []);
     return {
       targetCount: singleResult.targetCount + variationResult.targetCount,
       updatedCount: 0,

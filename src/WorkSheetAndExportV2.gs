@@ -424,6 +424,76 @@ function restoreVariationProductsV2Core_() {
   };
 }
 
+var SELECTION_EXPORT_CONTEXT_MODE_KEY_ = 'selection_export_context_mode';
+var RESTORE_SELECTION_EXPORT_PRODUCT_CODES_KEY_ = 'restore_selection_export_product_codes';
+
+function setSelectionExportContextMode_(mode) {
+  var properties = PropertiesService.getDocumentProperties();
+  var normalizedMode = normalizeString_(mode);
+  if (!normalizedMode) {
+    properties.deleteProperty(SELECTION_EXPORT_CONTEXT_MODE_KEY_);
+    return;
+  }
+  properties.setProperty(SELECTION_EXPORT_CONTEXT_MODE_KEY_, normalizedMode);
+}
+
+function getSelectionExportContextMode_() {
+  return normalizeString_(PropertiesService.getDocumentProperties().getProperty(SELECTION_EXPORT_CONTEXT_MODE_KEY_));
+}
+
+function setRestoreSelectionExportTargetProductCodes_(productCodes) {
+  var properties = PropertiesService.getDocumentProperties();
+  var normalizedCodes = (productCodes || []).map(normalizeString_).filter(function (productCode) {
+    return !!productCode;
+  });
+  if (!normalizedCodes.length) {
+    properties.deleteProperty(RESTORE_SELECTION_EXPORT_PRODUCT_CODES_KEY_);
+    return;
+  }
+  properties.setProperty(RESTORE_SELECTION_EXPORT_PRODUCT_CODES_KEY_, JSON.stringify(normalizedCodes));
+}
+
+function clearRestoreSelectionExportTargetProductCodes_() {
+  PropertiesService.getDocumentProperties().deleteProperty(RESTORE_SELECTION_EXPORT_PRODUCT_CODES_KEY_);
+}
+
+function activateUpdateSelectionExport_() {
+  setSelectionExportContextMode_('update');
+  clearRestoreSelectionExportTargetProductCodes_();
+}
+
+function activateRestoreSelectionExport_(productCodes) {
+  setSelectionExportContextMode_('restore');
+  setRestoreSelectionExportTargetProductCodes_(productCodes);
+}
+
+function shouldUseRestoreSelectionExport_() {
+  return getSelectionExportContextMode_() === 'restore';
+}
+
+function getRestoreSelectionExportTargetProductCodeSet_() {
+  var raw = PropertiesService.getDocumentProperties().getProperty(RESTORE_SELECTION_EXPORT_PRODUCT_CODES_KEY_);
+  var productCodeSet = {};
+  if (!raw) {
+    return productCodeSet;
+  }
+  JSON.parse(raw).forEach(function (productCode) {
+    var normalizedCode = normalizeString_(productCode);
+    if (normalizedCode) {
+      productCodeSet[normalizedCode] = true;
+    }
+  });
+  return productCodeSet;
+}
+
+function filterRestoreSelectionExportRowsV3_(values) {
+  var targetProductCodes = getRestoreSelectionExportTargetProductCodeSet_();
+  if (!Object.keys(targetProductCodes).length) {
+    throw new Error('復旧対象の商品コードが保持されていません。先にバリエーション復旧を実行してください。');
+  }
+  return filterExportRowsByProductCodes_(values, COL.SELECTION_PRODUCT_CODE, targetProductCodes);
+}
+
 function showFilteredExportDialog_(kind) {
   ensureBaseSheets_();
   var payload = buildFilteredExportPayload_(kind);
@@ -477,6 +547,9 @@ function filterExportValuesByWorkTargets_(kind, values) {
     return filterExportRowsByProductCodes_(values, COL.ITEMSUB_PRODUCT_CODE, targets.itemProductCodes);
   }
   if (kind === 'selection') {
+    if (shouldUseRestoreSelectionExport_()) {
+      return filterRestoreSelectionExportRowsV3_(values);
+    }
     return filterExportRowsBySourceRowNumbers_(values, targets.variationSourceRowNumbers);
   }
   throw new Error('不明な出力種別です。');

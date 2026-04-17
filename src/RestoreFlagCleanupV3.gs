@@ -17,6 +17,29 @@ function clearManagedFlagsForRestoredProductsV3_(itemValues, productCodeSet, fla
   return clearedCount;
 }
 
+function collectRestorableProductCodesByStockTypeV3_(itemRows, stockType, flagPrefix) {
+  var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
+  var productCodes = [];
+  var productCodeSet = {};
+
+  Object.keys(itemIndex.map).forEach(function (productCode) {
+    if (itemIndex.duplicates[productCode]) {
+      return;
+    }
+    var row = itemIndex.map[productCode].values;
+    if (normalizeString_(row[COL.ITEM_STOCK_TYPE - 1]) === String(stockType) && startsManagedFlag_(row[COL.ITEM_FLAG - 1], flagPrefix)) {
+      productCodes.push(productCode);
+      productCodeSet[productCode] = true;
+    }
+  });
+
+  return {
+    itemIndex: itemIndex,
+    productCodes: productCodes,
+    productCodeSet: productCodeSet
+  };
+}
+
 function restoreSingleProductsV3Core_() {
   var settings = ensureRestoreSettingsComplete_();
   var itemRows = getImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEM, [COL.ITEM_PRODUCT_CODE, COL.ITEM_STOCK_TYPE, COL.ITEM_FLAG], 'IR item CSV');
@@ -29,21 +52,12 @@ function restoreSingleProductsV3Core_() {
     COL.ITEMSUB_DISPLAY_PRICE,
     COL.ITEMSUB_DOUBLE_PRICE_TEXT
   ], 'IR itemsub CSV');
-  var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
+  var restoreTargets = collectRestorableProductCodesByStockTypeV3_(itemRows, '1', settings.flagPrefix);
+  var itemIndex = restoreTargets.itemIndex;
   var itemsubIndex = indexUniqueRows_(itemsubRows, COL.ITEMSUB_PRODUCT_CODE);
   var itemValues = itemRows.values;
   var itemsubValues = itemsubRows.values;
-  var targetCodes = [];
-
-  Object.keys(itemIndex.map).forEach(function (productCode) {
-    if (itemIndex.duplicates[productCode]) {
-      return;
-    }
-    var row = itemIndex.map[productCode].values;
-    if (normalizeString_(row[COL.ITEM_STOCK_TYPE - 1]) === '1' && startsManagedFlag_(row[COL.ITEM_FLAG - 1], settings.flagPrefix)) {
-      targetCodes.push(productCode);
-    }
-  });
+  var targetCodes = restoreTargets.productCodes;
 
   var restoreStart = formatDateTimeForCsv_(settings.restoreStartDate, settings.restoreStartTime);
   var restoreEnd = formatDateTimeForCsv_(settings.restoreEndDate, settings.restoreEndTime);
@@ -101,7 +115,8 @@ function restoreVariationProductsV3Core_() {
     COL.ITEMSUB_NAME
   ], 'IR itemsub CSV');
   var itemsubColumns = getItemsubSalePeriodColumnsV2_(itemsubRows.header);
-  var itemIndex = indexUniqueRows_(itemRows, COL.ITEM_PRODUCT_CODE);
+  var restoreTargets = collectRestorableProductCodesByStockTypeV3_(itemRows, '2', settings.flagPrefix);
+  var itemIndex = restoreTargets.itemIndex;
   var selectionIndex = indexUniqueRows_(selectionRows, COL.SELECTION_SKU_CODE);
   var itemsubRowsByProductCode = indexRowsByColumnValuesV2_(itemsubRows, [
     itemsubColumns.mainProductCode,
@@ -110,17 +125,7 @@ function restoreVariationProductsV3Core_() {
   var itemValues = itemRows.values;
   var selectionValues = selectionRows.values;
   var itemsubValues = itemsubRows.values;
-  var targetProductCodes = {};
-
-  Object.keys(itemIndex.map).forEach(function (productCode) {
-    if (itemIndex.duplicates[productCode]) {
-      return;
-    }
-    var row = itemIndex.map[productCode].values;
-    if (normalizeString_(row[COL.ITEM_STOCK_TYPE - 1]) === '2' && startsManagedFlag_(row[COL.ITEM_FLAG - 1], settings.flagPrefix)) {
-      targetProductCodes[productCode] = true;
-    }
-  });
+  var targetProductCodes = restoreTargets.productCodeSet;
 
   var restoreStart = formatDateTimeForCsv_(settings.restoreStartDate, settings.restoreStartTime);
   var restoreEnd = formatDateTimeForCsv_(settings.restoreEndDate, settings.restoreEndTime);
@@ -177,6 +182,7 @@ function restoreVariationProductsV3Core_() {
   writeBackImportedValues_(APP_CONFIG.SHEETS.IMPORT_ITEM, itemValues);
   return {
     targetCount: Object.keys(targetProductCodes).length,
+    targetProductCodes: Object.keys(targetProductCodes),
     updatedCount: 0,
     restoredCount: restoredSelectionCount + restoredNameCount,
     skippedCount: skippedCount,
